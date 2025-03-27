@@ -1,106 +1,86 @@
-import streamlit as st
-import requests
+import openai
+import pinecone
 import uuid
+import numpy as np
+from PyPDF2 import PdfReader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# ✅ Webhook URLs
-WEBHOOK_URL_PDFS = "https://n8n.khtt.online/webhook/getpdfs"     # Webhook dùng cho upload file
-WEBHOOK_URL_CHAT = "https://n8n.khtt.online/webhook/cvdataset"   # Webhook dùng cho truy vấn chatbot
+# Cấu hình OpenAI và Pinecone
+openai.api_key = "YOUR_OPENAI_API_KEY"  # Đảm bảo rằng bạn đã có API key của OpenAI
+pinecone.init(api_key="YOUR_PINECONE_API_KEY", environment="us-west1-gcp")
 
-# ✅ Header Auth (chỉ dùng cho GET/POST JSON – KHÔNG dùng Content-Type khi gửi files binary)
-HEADERS_CHAT = {
-    "phuongduyen": "phuongduyentestcvdataset",
-    "Content-Type": "application/json"
-}
+# Kết nối với Pinecone
+index_name = "cvdataset"  # Tên chỉ mục Pinecone của bạn
+index = pinecone.Index(index_name)
 
-HEADERS_FILE = {
-    "phuongduyen": "phuongduyentestcvdataset"  # KHÔNG thêm content-type, requests sẽ tự xử lý
-}
-
+# Tạo session ID duy nhất cho mỗi phiên làm việc
 def generate_session_id():
-    """Tạo session ID duy nhất."""
     return str(uuid.uuid4())
 
-def send_message_to_llm(session_id, user_message):
-    """Gửi tin nhắn từ người dùng đến LLM thông qua webhook chat."""
-    try:
-        payload = {
-            "sessionId": session_id,
-            "chatInput": user_message
-        }
+# Đọc và trích xuất văn bản từ file PDF
+def read_pdfs(pdf_files):
+    text = ""
+    for pdf in pdf_files:
+        pdf_reader = PdfReader(pdf)
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+    return text
 
-        response = requests.post(WEBHOOK_URL_CHAT, json=payload, headers=HEADERS_CHAT)
-        response.raise_for_status()
-        return response.json().get('output', 'No response received')
+# Chia nhỏ văn bản nếu quá dài (split)
+def split_text(text, chunk_size=8000):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=200)
+    return text_splitter.split_text(text)
 
-    except requests.RequestException as e:
-        st.error(f"Error sending message to LLM: {e}")
-        return "Sorry, there was an error processing your message."
+# Tạo embedding từ văn bản bằng OpenAI
+def create_embedding_from_text(text):
+    response = openai.Embedding.create(
+        model="text-embedding-ada-002",  # Hoặc mô hình embedding khác bạn muốn sử dụng
+        input=text
+    )
+    embeddings = response['data'][0]['embedding']
+    return embeddings
 
-def send_files_to_n8n(uploaded_files):
-    """Gửi nhiều file (PDF, DOCX, TXT...) tới webhook n8n dưới dạng binary multipart/form-data."""
-    files_payload = []
+# Chèn dữ liệu vào Pinecone
+def upload_to_pinecone(file_name, content, embeddings):
+    metadata = {
+        "file_name": file_name,
+        "content": content[:500]  # Trích xuất phần đầu của nội dung để làm metadata
+    }
 
-    for file in uploaded_files:
-        file_bytes = file.read()
-        files_payload.append(
-            ('files', (file.name, file_bytes, file.type or 'application/octet-stream'))
-        )
+    # Tạo vector cho file và đưa vào Pinecone
+    upsert_response = index.upsert(
+        vectors=[(str(uuid.uuid4()), embeddings, metadata)]
+    )
+    return upsert_response
 
-    try:
-        response = requests.post(WEBHOOK_URL_PDFS, headers=HEADERS_FILE, files=files_payload)
-        response.raise_for_status()
-        return response.text  # hoặc response.json() nếu n8n trả về JSON
-
-    except requests.RequestException as e:
-        st.error(f"Upload failed: {e}")
-        return None
-
+# Main function để xử lý tất cả các bước
 def main():
+    # Ví dụ về việc upload file từ người dùng
     st.set_page_config(page_title="CV Recruitment AI", page_icon="💼")
+    uploaded_files = st.file_uploader("Upload PDF Files", accept_multiple_files=True)
 
-    # Tạo session ID và lưu chat history
-    if 'session_id' not in st.session_state:
-        st.session_state.session_id = generate_session_id()
-    if 'chat_history' not in st.session_state:
-        st.session_state.chat_history = []
+    if uploaded_files:
+        with st.spinner("Processing files..."):
+            for file in uploaded_files:
+                # Đọc văn bản từ file PDF
+                raw_text = read_pdfs([file])
 
-    st.title("💼 CV Recruitment AI Assistant")
-    st.write("An AI assistant to help find the most suitable candidates for your job description.")
+                # Chia nhỏ văn bản nếu cần
+                text_chunks = split_text(raw_text)
 
-    # Chatbox chính
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg['role']):
-            st.markdown(msg['content'])
+                # Tạo embeddings từ văn bản đã chia nhỏ
+                embeddings_list = []
+                for chunk in text_chunks:
+                    embeddings = create_embedding_from_text(chunk)
+                    embeddings_list.append(embeddings)
 
-    if prompt := st.chat_input("Enter your job description or candidate search query"):
-        st.session_state.chat_history.append({'role': 'user', 'content': prompt})
-        with st.chat_message('user'):
-            st.markdown(prompt)
+                # Chèn vào Pinecone
+                for embeddings, chunk in zip(embeddings_list, text_chunks):
+                    response = upload_to_pinecone(file.name, chunk, embeddings)
+                    st.success(f"✅ File {file.name} processed and uploaded to Pinecone successfully!")
 
-        with st.chat_message('assistant'):
-            with st.spinner("Searching for matching candidates..."):
-                response = send_message_to_llm(st.session_state.session_id, prompt)
-                st.markdown(response)
-                st.session_state.chat_history.append({'role': 'assistant', 'content': response})
-
-    # Sidebar: Upload nhiều file
-    with st.sidebar:
-        st.subheader("📎 Upload candidate CVs")
-        uploaded_files = st.file_uploader(
-            "Upload PDF/DOCX/TXT files",
-            type=None,
-            accept_multiple_files=True
-        )
-
-        if st.button("📤 Upload to n8n"):
-            if uploaded_files:
-                with st.spinner("Uploading files to n8n..."):
-                    result = send_files_to_n8n(uploaded_files)
-                    if result:
-                        st.success("✅ Files uploaded and processed successfully!")
-                        st.code(result, language='json')
-            else:
-                st.warning("⚠️ Please select at least one file.")
+    else:
+        st.warning("⚠️ Please upload at least one file.")
 
 if __name__ == "__main__":
     main()
