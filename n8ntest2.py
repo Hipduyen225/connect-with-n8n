@@ -36,11 +36,14 @@ def split_text(text, chunk_size=8000):
 
 # Tạo embedding từ văn bản bằng OpenAI
 def create_embedding_from_text(text):
-    response = openai.Embedding.create(
-        model="text-embedding-ada-002",  # Hoặc mô hình embedding khác bạn muốn sử dụng
-        input=text
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",  # Hoặc GPT-4 tùy theo phiên bản bạn sử dụng
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": text},
+        ],
     )
-    embeddings = response['data'][0]['embedding']
+    embeddings = response['choices'][0]['message']['content']
     return embeddings
 
 # Chèn dữ liệu vào Pinecone
@@ -60,7 +63,7 @@ def upload_to_pinecone(file_name, content, embeddings):
 def validate_api_key(api_key):
     try:
         configure_openai(api_key)  # Kiểm tra kết nối với OpenAI
-        openai.Completion.create(model="text-davinci-003", prompt="Test", max_tokens=5)  # Thử gọi API
+        openai.ChatCompletion.create(model="gpt-3.5-turbo", prompt="Test", max_tokens=5)  # Thử gọi API
         return True
     except Exception as e:
         st.error(f"Invalid API Key: {e}")
