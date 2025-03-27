@@ -68,6 +68,6 @@ watchdog==4.0.2
 websockets==13.1
 yarl==1.13.1
 PyPDF2
-openai==1.0.0
+openai
 pinecone
 langchain
