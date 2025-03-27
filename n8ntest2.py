@@ -4,9 +4,12 @@ import uuid
 import numpy as np
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings.openai import OpenAIEmbeddings  # Sử dụng OpenAI embeddings
+from langchain.chat_models import ChatOpenAI  # Sử dụng OpenAI Chat model
+from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
+from langchain.vectorstores import FAISS
 from datetime import datetime
-import faiss
 import streamlit as st
 
 # Cấu hình OpenAI và Pinecone
@@ -60,7 +63,7 @@ def create_embedding_from_text(text):
         input=text
     )
     embeddings = response['data'][0]['embedding']
-    return np.array(embeddings)
+    return embeddings
 
 # Chèn dữ liệu vào Pinecone
 def upload_to_pinecone(file_name, content, embeddings):
@@ -71,21 +74,24 @@ def upload_to_pinecone(file_name, content, embeddings):
 
     # Tạo vector cho file và đưa vào Pinecone
     upsert_response = index.upsert(
-        vectors=[(str(uuid.uuid4()), embeddings.tolist(), metadata)]
+        vectors=[(str(uuid.uuid4()), embeddings, metadata)]
     )
     return upsert_response
 
-# Sử dụng FAISS để tạo vector store
-def create_faiss_index(embeddings_list):
-    dimension = len(embeddings_list[0])
-    index = faiss.IndexFlatL2(dimension)  # Using L2 (Euclidean) distance
-    faiss_index = faiss.IndexIDMap(index)
-    
-    ids = np.array([i for i in range(len(embeddings_list))])
-    embeddings = np.vstack(embeddings_list)
-    faiss_index.add_with_ids(embeddings, ids)
-    
-    return faiss_index
+# Hàm lấy conversational chain từ OpenAI
+def get_conversational_chain(model_name="OpenAI", vectorstore=None):
+    prompt_template = """
+    Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
+    provided context just say, "answer is not available in the context", don't provide the wrong answer\n\n
+    Context:\n {context}?\n
+    Question: \n{question}\n
+
+    Answer:
+    """
+    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.3, api_key="YOUR_OPENAI_API_KEY")
+    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
+    return chain
 
 # Lấy input người dùng và xử lý
 def user_input(user_question, pdf_docs, conversation_history):
@@ -104,20 +110,16 @@ def user_input(user_question, pdf_docs, conversation_history):
         response = upload_to_pinecone(file_name="Uploaded PDF", content=chunk, embeddings=embeddings)
         st.success(f"✅ File processed and uploaded to Pinecone successfully!")
 
-    # Tạo FAISS index từ embeddings
-    faiss_index = create_faiss_index(embeddings_list)
-
     # Trả về phản hồi cho câu hỏi người dùng
-    question_embedding = create_embedding_from_text(user_question)
-    D, I = faiss_index.search(np.array([question_embedding]), k=5)  # Lấy 5 câu trả lời gần nhất
+    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002", api_key="YOUR_OPENAI_API_KEY")
+    new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+    docs = new_db.similarity_search(user_question)
+    chain = get_conversational_chain(vectorstore=new_db)
+    response = chain({"input_documents": docs, "question": user_question}, return_only_outputs=True)
 
-    # Tạo câu trả lời dựa trên câu trả lời gần nhất
-    relevant_docs = [text_chunks[i] for i in I[0]]
-    answer = " ".join(relevant_docs)
-
-    conversation_history.append((user_question, answer, "OpenAI", datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    conversation_history.append((user_question, response['output_text'], "OpenAI", datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     
-    st.write("Answer: ", answer)
+    st.write("Answer: ", response['output_text'])
 
 # Hàm để lấy văn bản từ PDF
 def get_pdf_text(pdf_docs):
@@ -157,9 +159,7 @@ def main():
                 st.warning("Please upload PDF files before processing.")
 
     user_question = st.text_input("Ask a Question from the PDF Files")
-
     if user_question:
         user_input(user_question, pdf_docs, st.session_state.conversation_history)
-
 if __name__ == "__main__":
     main()
