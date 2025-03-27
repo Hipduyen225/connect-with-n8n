@@ -10,7 +10,6 @@ WEBHOOK_URL_CHAT = "https://n8n.khtt.online/webhook/cvdataset"  # URL Webhook ch
 # Header Auth đúng với n8n
 HEADERS = {
     "phuongduyen": "phuongduyentestcvdataset",  # Thay bằng đúng token bạn đã nhập ở n8n
-    "Content-Type": "application/json"
 }
 
 def generate_session_id():
@@ -44,9 +43,9 @@ def send_pdfs_to_n8n(files):
     Gửi file PDF tới webhook n8n để xử lý và lưu vào Pinecone.
     """
     webhook_url = WEBHOOK_URL_PDFS
-    headers = HEADERS
-
     files_payload = []
+    
+    # Gửi file dưới dạng 'multipart/form-data'
     for file in files:
         file_content = file.read()  # Đọc dữ liệu file
         files_payload.append(
@@ -54,10 +53,10 @@ def send_pdfs_to_n8n(files):
         )
 
     try:
-        response = requests.post(webhook_url, headers=headers, files=files_payload)
+        response = requests.post(webhook_url, headers=HEADERS, files=files_payload)
         response.raise_for_status()  # Kiểm tra nếu có lỗi trong việc gửi
         return response.json()  # Trả về kết quả từ n8n (ví dụ: "Success")
-    except Exception as e:
+    except requests.RequestException as e:
         st.error(f"Upload failed: {e}")
         return None
 
