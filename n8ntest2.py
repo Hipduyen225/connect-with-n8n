@@ -1,11 +1,9 @@
 import streamlit as st
 import requests
 import uuid
-from PyPDF2 import PdfReader  # Import thư viện xử lý PDF
 
-# Webhook URL đúng (production) cho từng trigger
+# Webhook URL đúng (production) cho phần upload file
 WEBHOOK_URL_PDFS = "https://n8n.khtt.online/webhook/getpdfs"  # URL Webhook cho PDF
-WEBHOOK_URL_CHAT = "https://n8n.khtt.online/webhook/cvdataset"  # URL Webhook cho Chat
 
 # Header Auth đúng với n8n
 HEADERS = {
@@ -19,62 +17,38 @@ def generate_session_id():
     """
     return str(uuid.uuid4())
 
-def send_message_to_llm(session_id, user_message):
-    """
-    Gửi tin nhắn người dùng đến webhook và nhận phản hồi từ AI.
-    """
-    try:
-        payload = {
-            "sessionId": session_id,
-            "chatInput": user_message
-        }
-
-        # Gửi request với header đúng
-        response = requests.post(WEBHOOK_URL_CHAT, json=payload, headers=HEADERS)
-        response.raise_for_status()
-
-        return response.json().get('output', 'No response received')
-
-    except requests.RequestException as e:
-        st.error(f"Error sending message to LLM: {e}")
-        return "Sorry, there was an error processing your message."
-
 def send_pdfs_to_n8n(files):
     """
-    Gửi file PDF tới webhook n8n để xử lý và lưu vào Pinecone.
+    Gửi file PDF tới webhook n8n để xử lý và kiểm tra kết quả từ webhook.
     """
     webhook_url = WEBHOOK_URL_PDFS
     headers = HEADERS
 
+    # Tạo payload dữ liệu của file để gửi đến webhook n8n
     files_payload = []
     for file in files:
         file_content = file.read()  # Đọc dữ liệu file
-        files_payload.append(
-            ('files', (file.name, file_content, 'application/pdf'))  # Gửi dưới dạng PDF binary
-        )
+        files_payload.append({
+            'name': file.name,
+            'size': len(file_content),  # Kích thước file
+            'content': file_content.decode('utf-8', 'ignore')  # Giải mã nội dung file thành chuỗi
+        })
+    
+    # Hiển thị dữ liệu payload gửi đi để kiểm tra
+    st.write("Dữ liệu gửi đi từ Streamlit: ")
+    st.write(files_payload)
 
     try:
-        response = requests.post(webhook_url, headers=headers, files=files_payload)
+        response = requests.post(webhook_url, headers=headers, json={'files': files_payload})
         response.raise_for_status()  # Kiểm tra nếu có lỗi trong việc gửi
         return response.json()  # Trả về kết quả từ n8n (ví dụ: "Success")
     except Exception as e:
         st.error(f"Upload failed: {e}")
         return None
 
-def read_pdfs(pdf_files):
-    """
-    Đọc nhiều file PDF và trả về văn bản từ các file đó.
-    """
-    text = ""
-    for pdf in pdf_files:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-    return text
-
 def main():
     """
-    Ứng dụng chính của chatbot CV AI với phần upload nhiều file PDF.
+    Ứng dụng chính của chatbot CV AI với phần upload nhiều file.
     """
     st.set_page_config(page_title="CV Recruitment AI", page_icon="💼")
 
@@ -115,20 +89,20 @@ def main():
             'content': llm_response
         })
 
-    # Phần sidebar để upload nhiều file PDF
+    # Phần sidebar để upload nhiều file (không ràng buộc vào PDF)
     with st.sidebar:
-        st.title("Upload PDFs")
-        pdf_docs = st.file_uploader("Upload your PDF files", accept_multiple_files=True, type='pdf')
+        st.title("Upload Files")
+        uploaded_files = st.file_uploader("Upload your files", accept_multiple_files=True)
 
         if st.button("Submit & Process"):
-            if pdf_docs:
-                with st.spinner("Uploading PDFs to n8n..."):
-                    response = send_pdfs_to_n8n(pdf_docs)  # Gửi file PDF qua n8n
+            if uploaded_files:
+                with st.spinner("Uploading files to n8n..."):
+                    response = send_pdfs_to_n8n(uploaded_files)  # Gửi file tới n8n
                     if response:
                         st.success("Files uploaded and processed successfully.")
                         st.write(response)  # Hiển thị kết quả từ n8n (ví dụ: "Success")
             else:
-                st.warning("Please upload at least one PDF file.")
+                st.warning("Please upload at least one file.")
 
 if __name__ == "__main__":
     main()
