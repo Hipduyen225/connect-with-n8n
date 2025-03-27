@@ -44,7 +44,7 @@ def send_pdfs_to_n8n(files):
     """
     webhook_url = WEBHOOK_URL_PDFS
     files_payload = []
-    
+
     # Tách mỗi file PDF thành một mục riêng biệt
     for file in files:
         file_content = file.read()  # Đọc dữ liệu file
@@ -60,7 +60,6 @@ def send_pdfs_to_n8n(files):
     except requests.RequestException as e:
         st.error(f"Upload failed: {e}")
         return None
-
 
 def read_pdfs(pdf_files):
     """
@@ -126,8 +125,11 @@ def main():
                 with st.spinner("Uploading PDFs to n8n..."):
                     response = send_pdfs_to_n8n(pdf_docs)  # Gửi file PDF qua n8n
                     if response:
-                        st.success("Files uploaded and processed successfully.")
-                        st.write(response)  # Hiển thị kết quả từ n8n (ví dụ: "Success")
+                        # Hiển thị message từ phản hồi JSON của n8n nếu có
+                        if response.get("status") == "success":
+                            st.success(response.get("message", "Files uploaded and processed successfully."))
+                        else:
+                            st.warning("Received response, but no success message found.")
             else:
                 st.warning("Please upload at least one PDF file.")
 
