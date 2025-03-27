@@ -162,6 +162,5 @@ def main():
 
     if user_question:
         user_input(user_question, pdf_docs, st.session_state.conversation_history)
-
 if __name__ == "__main__":
     main()
