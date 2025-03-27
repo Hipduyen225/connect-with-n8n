@@ -3,8 +3,9 @@ import requests
 import uuid
 from PyPDF2 import PdfReader  # Import thư viện xử lý PDF
 
-# Webhook URL đúng (production)
-WEBHOOK_URL = "https://n8n.khtt.online/webhook/cvdataset"
+# Webhook URL đúng (production) cho từng trigger
+WEBHOOK_URL_PDFS = "https://n8n.khtt.online/webhook/getpdfs"  # URL Webhook cho PDF
+WEBHOOK_URL_CHAT = "https://n8n.khtt.online/webhook/cvdataset"  # URL Webhook cho Chat
 
 # Header Auth đúng với n8n
 HEADERS = {
@@ -29,7 +30,7 @@ def send_message_to_llm(session_id, user_message):
         }
 
         # Gửi request với header đúng
-        response = requests.post(WEBHOOK_URL, json=payload, headers=HEADERS)
+        response = requests.post(WEBHOOK_URL_CHAT, json=payload, headers=HEADERS)
         response.raise_for_status()
 
         return response.json().get('output', 'No response received')
@@ -37,6 +38,28 @@ def send_message_to_llm(session_id, user_message):
     except requests.RequestException as e:
         st.error(f"Error sending message to LLM: {e}")
         return "Sorry, there was an error processing your message."
+
+def send_pdfs_to_n8n(files):
+    """
+    Gửi file PDF tới webhook n8n để xử lý và lưu vào Pinecone.
+    """
+    webhook_url = WEBHOOK_URL_PDFS
+    headers = HEADERS
+
+    files_payload = []
+    for file in files:
+        file_content = file.read()  # Đọc dữ liệu file
+        files_payload.append(
+            ('files', (file.name, file_content, 'application/pdf'))  # Gửi dưới dạng PDF binary
+        )
+
+    try:
+        response = requests.post(webhook_url, headers=headers, files=files_payload)
+        response.raise_for_status()  # Kiểm tra nếu có lỗi trong việc gửi
+        return response.json()  # Trả về kết quả từ n8n (ví dụ: "Success")
+    except Exception as e:
+        st.error(f"Upload failed: {e}")
+        return None
 
 def read_pdfs(pdf_files):
     """
@@ -69,7 +92,7 @@ def main():
         with st.chat_message(message['role']):
             st.markdown(message['content'])
 
-    # Xử lý input của người dùng
+    # Giai đoạn 2: Xử lý input của người dùng và gửi qua webhook chat
     if prompt := st.chat_input("Enter your job description or candidate search query"):
         st.session_state.chat_history.append({
             'role': 'user',
@@ -96,15 +119,16 @@ def main():
     with st.sidebar:
         st.title("Upload PDFs")
         pdf_docs = st.file_uploader("Upload your PDF files", accept_multiple_files=True, type='pdf')
+
         if st.button("Submit & Process"):
             if pdf_docs:
-                with st.spinner("Processing PDFs..."):
-                    raw_text = read_pdfs(pdf_docs)  # Đọc và kết hợp văn bản từ nhiều file PDF
-                    st.success("Processing Complete!")
-                    st.write("Extracted text from PDFs:")
-                    st.write(raw_text[:500])  # Hiển thị một phần văn bản đã được trích xuất
+                with st.spinner("Uploading PDFs to n8n..."):
+                    response = send_pdfs_to_n8n(pdf_docs)  # Gửi file PDF qua n8n
+                    if response:
+                        st.success("Files uploaded and processed successfully.")
+                        st.write(response)  # Hiển thị kết quả từ n8n (ví dụ: "Success")
             else:
-                st.warning("Please upload some PDF files.")
+                st.warning("Please upload at least one PDF file.")
 
 if __name__ == "__main__":
     main()
