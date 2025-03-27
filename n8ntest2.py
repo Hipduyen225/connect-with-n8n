@@ -34,16 +34,17 @@ def split_text(text, chunk_size=8000):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=200)
     return text_splitter.split_text(text)
 
-# Tạo embedding từ văn bản bằng OpenAI
+# Tạo embedding từ văn bản bằng OpenAI (API mới sử dụng chat completions)
 def create_embedding_from_text(text):
+    # Đảm bảo sử dụng API mới với ChatCompletion
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",  # Hoặc GPT-4 tùy theo phiên bản bạn sử dụng
+        model="gpt-3.5-turbo",  # Hoặc GPT-4 nếu bạn muốn sử dụng phiên bản cao hơn
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": text},
         ],
     )
-    embeddings = response['choices'][0]['message']['content']
+    embeddings = response['choices'][0]['message']['content']  # Trả về embedding (hoặc nội dung từ response)
     return embeddings
 
 # Chèn dữ liệu vào Pinecone
@@ -63,7 +64,8 @@ def upload_to_pinecone(file_name, content, embeddings):
 def validate_api_key(api_key):
     try:
         configure_openai(api_key)  # Kiểm tra kết nối với OpenAI
-        openai.ChatCompletion.create(model="gpt-3.5-turbo", prompt="Test", max_tokens=5)  # Thử gọi API
+        # Dùng phương thức ChatCompletion.create với model hợp lệ
+        openai.ChatCompletion.create(model="gpt-3.5-turbo", prompt="Test", max_tokens=5)
         return True
     except Exception as e:
         st.error(f"Invalid API Key: {e}")
