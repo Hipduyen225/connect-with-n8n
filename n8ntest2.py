@@ -15,12 +15,28 @@ import streamlit as st
 # Cấu hình OpenAI và Pinecone
 openai.api_key = "YOUR_OPENAI_API_KEY"  # Đảm bảo rằng bạn đã có API key của OpenAI
 
-# Khởi tạo Pinecone
-pinecone.init(api_key="YOUR_PINECONE_API_KEY", environment="us-west1-gcp")
+# Khởi tạo Pinecone với cách mới
+from pinecone import Pinecone, ServerlessSpec
+
+pc = Pinecone(
+    api_key="YOUR_PINECONE_API_KEY"
+)
+
+# Kiểm tra nếu index không có sẵn, tạo mới
+index_name = "cvdataset"  # Tên chỉ mục Pinecone của bạn
+if index_name not in pc.list_indexes().names():
+    pc.create_index(
+        name=index_name,
+        dimension=1536,  # Đảm bảo dimension phù hợp với embeddings của bạn
+        metric="euclidean",  # Bạn cũng có thể dùng 'cosine' hoặc 'dotproduct'
+        spec=ServerlessSpec(
+            cloud="aws",
+            region="us-west-2"
+        )
+    )
 
 # Kết nối với Pinecone
-index_name = "cvdataset"  # Tên chỉ mục Pinecone của bạn
-index = pinecone.Index(index_name)
+index = pc[index_name]
 
 # Tạo session ID duy nhất cho mỗi phiên làm việc
 def generate_session_id():
