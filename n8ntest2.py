@@ -40,12 +40,12 @@ def send_message_to_llm(session_id, user_message):
 
 def send_pdfs_to_n8n(files):
     """
-    Gửi file PDF tới webhook n8n để xử lý và lưu vào Pinecone.
+    Gửi file PDF tới webhook n8n để xử lý và lưu vào Pinecone, mỗi file riêng biệt.
     """
     webhook_url = WEBHOOK_URL_PDFS
     files_payload = []
     
-    # Gửi file dưới dạng 'multipart/form-data'
+    # Tách mỗi file PDF thành một mục riêng biệt
     for file in files:
         file_content = file.read()  # Đọc dữ liệu file
         files_payload.append(
@@ -53,12 +53,14 @@ def send_pdfs_to_n8n(files):
         )
 
     try:
+        # Gửi từng file PDF riêng biệt vào webhook
         response = requests.post(webhook_url, headers=HEADERS, files=files_payload)
         response.raise_for_status()  # Kiểm tra nếu có lỗi trong việc gửi
         return response.json()  # Trả về kết quả từ n8n (ví dụ: "Success")
     except requests.RequestException as e:
         st.error(f"Upload failed: {e}")
         return None
+
 
 def read_pdfs(pdf_files):
     """
