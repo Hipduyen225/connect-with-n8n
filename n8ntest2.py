@@ -4,8 +4,6 @@ import uuid
 import numpy as np
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings.openai import OpenAIEmbeddings  # Sử dụng OpenAI embeddings
-from langchain.chat_models import ChatOpenAI  # Sử dụng OpenAI Chat model
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import FAISS
@@ -88,7 +86,10 @@ def get_conversational_chain(model_name="OpenAI", vectorstore=None):
 
     Answer:
     """
-    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.3, api_key="YOUR_OPENAI_API_KEY")
+    model = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",  # Hoặc mô hình khác bạn muốn sử dụng
+        messages=[]
+    )
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
     chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
     return chain
@@ -111,7 +112,7 @@ def user_input(user_question, pdf_docs, conversation_history):
         st.success(f"✅ File processed and uploaded to Pinecone successfully!")
 
     # Trả về phản hồi cho câu hỏi người dùng
-    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002", api_key="YOUR_OPENAI_API_KEY")
+    embeddings = create_embedding_from_text("Example query to retrieve embeddings.")
     new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
     docs = new_db.similarity_search(user_question)
     chain = get_conversational_chain(vectorstore=new_db)
