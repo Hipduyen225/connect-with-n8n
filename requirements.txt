@@ -69,4 +69,4 @@ websockets==13.1
 yarl==1.13.1
 PyPDF2
 openai
-pinecone-client
+pinecone
